@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from vllm import LLM, SamplingParams
 from vllm.engine.arg_utils import EngineArgs
-from vllm.inputs import PromptInputs
+from vllm.inputs import PromptType
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import FlexibleArgumentParser
 import csv
@@ -34,12 +34,12 @@ def main(args: argparse.Namespace):
         max_model_len=args.max_model_len,
         enforce_eager=args.enforce_eager,
         kv_cache_dtype=args.kv_cache_dtype,
-        quantization_param_path=args.quantization_param_path,
+        # quantization_param_path=args.quantization_param_path,
         device=args.device,
         ray_workers_use_nsight=args.ray_workers_use_nsight,
         use_v2_block_manager=args.use_v2_block_manager,
         enable_chunked_prefill=args.enable_chunked_prefill,
-        download_dir='/lus/grand/projects/datascience/krishnat/model_weights/LLaMA/llama_cache/',
+        # download_dir='/lus/grand/projects/datascience/krishnat/model_weights/LLaMA/llama_cache/',
         block_size=args.block_size,
         gpu_memory_utilization=args.gpu_memory_utilization,
         load_format=args.load_format,
@@ -51,19 +51,28 @@ def main(args: argparse.Namespace):
 
     sampling_params = SamplingParams(
         n=args.n,
-        temperature=0.0 if args.use_beam_search else 1.0,
+        temperature= 1.0,
         top_p=1.0,
-        use_beam_search=args.use_beam_search,
+        # use_beam_search=args.use_beam_search,
         ignore_eos=True,
         max_tokens=args.output_len,
     )
     
+    sampling_params_prefile = SamplingParams(
+        n=args.n,
+        temperature= 1.0,
+        top_p=1.0,
+        # use_beam_search=args.use_beam_search,
+        ignore_eos=True,
+        max_tokens=1,
+    )
+
     print(sampling_params)
     dummy_prompt_token_ids = np.random.randint(10000,
                                             size=(args.batch_size,
                                                     args.input_len))
     
-    dummy_inputs: List[PromptInputs] = [{
+    dummy_inputs: List[PromptType] = [{
         "prompt_token_ids": batch
     } for batch in dummy_prompt_token_ids.tolist()]
     
@@ -72,15 +81,24 @@ def main(args: argparse.Namespace):
     for _ in tqdm(range(3), desc="Warmup iterations"):
         llm.generate(dummy_inputs, sampling_params=sampling_params, use_tqdm=False)
 
-    start_time = time.perf_counter()
-    llm.generate(dummy_inputs, sampling_params=sampling_params, use_tqdm=False)
-    end_time = time.perf_counter()
-    latency = end_time - start_time
-    total_tokens = args.batch_size*(args.input_len + args.input_len)
-    throughput =  total_tokens/latency
+    start_time_prefile = time.perf_counter()
+    llm.generate(dummy_inputs, sampling_params=sampling_params_prefile, use_tqdm=False)
+    end_time_prefile = time.perf_counter()
 
-    list_1 = ["Hardware", "Num of Hardware", "Framework", "Model", "Input Output Length", "Batch Size", "latency", "throughput"]
-    list_2 = ["Nvidia A100 GPU", args.tensor_parallel_size, "vLLM", args.model, args.input_len, args.batch_size, latency, throughput] 
+    start_time_decode = time.perf_counter()
+    llm.generate(dummy_inputs, sampling_params=sampling_params, use_tqdm=False)
+    end_time_decode = time.perf_counter()
+
+    latency_prefile = end_time_prefile - start_time_prefile
+    latency_decode = end_time_decode - start_time_decode-latency_prefile
+    total_tokens_prefile = args.batch_size*(args.input_len +1)
+    total_tokens_decode = args.batch_size*( args.output_len - 1)
+
+    throughput_prefile =  total_tokens_prefile/latency_prefile
+    throughput_decode =  total_tokens_decode/latency_decode
+
+    list_1 = ["Hardware", "Num of Hardware", "Framework", "Model", "Input length", "Output Length", "Batch Size", "latency_prefile", "throughput_prefile", "latency_decode", "throughput_decode"]
+    list_2 = ["Nvidia A100 GPU", args.tensor_parallel_size, "vLLM", args.model, args.input_len, args.output_len, args.batch_size, latency_prefile, throughput_prefile, latency_decode, throughput_decode] 
 
     assert len(list_1) == len(list_2)
 
@@ -160,16 +178,16 @@ if __name__ == '__main__':
         help='Data type for kv cache storage. If "auto", will use model '
         'data type. CUDA 11.8+ supports fp8 (=fp8_e4m3) and fp8_e5m2. '
         'ROCm (AMD GPU) supports fp8 (=fp8_e4m3)')
-    parser.add_argument(
-        '--quantization-param-path',
-        type=str,
-        default=None,
-        help='Path to the JSON file containing the KV cache scaling factors. '
-        'This should generally be supplied, when KV cache dtype is FP8. '
-        'Otherwise, KV cache scaling factors default to 1.0, which may cause '
-        'accuracy issues. FP8_E5M2 (without scaling) is only supported on '
-        'cuda version greater than 11.8. On ROCm (AMD GPU), FP8_E4M3 is '
-        'instead supported for common inference criteria.')
+    # parser.add_argument(
+    #     '--quantization-param-path',
+    #     type=str,
+    #     default=None,
+    #     help='Path to the JSON file containing the KV cache scaling factors. '
+    #     'This should generally be supplied, when KV cache dtype is FP8. '
+    #     'Otherwise, KV cache scaling factors default to 1.0, which may cause '
+    #     'accuracy issues. FP8_E5M2 (without scaling) is only supported on '
+    #     'cuda version greater than 11.8. On ROCm (AMD GPU), FP8_E4M3 is '
+    #     'instead supported for common inference criteria.')
     parser.add_argument(
         '--profile',
         action='store_true',
