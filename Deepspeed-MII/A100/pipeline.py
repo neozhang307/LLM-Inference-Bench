@@ -38,13 +38,21 @@ def generate_input(args):
 pipe = mii.pipeline(args.model)
 
 prompts = generate_input(args)
-
-start_time = time.time()
+#warmup 
 responses = pipe(prompts, max_new_tokens=args.max_new_tokens, return_full_text=True)
-end_time = time.time()
+#prefile
+start_time_prefile = time.time()
+responses = pipe(prompts, max_new_tokens=1, return_full_text=True)
+end_time_prefile = time.time()
+#decoding
+start_time_decode = time.time()
+responses = pipe(prompts, max_new_tokens=args.max_new_tokens, return_full_text=True)
+end_time_decode = time.time()
 
-latency = end_time-start_time
-throughput = (args.batch_size*(args.max_input_length + args.max_new_tokens))/latency
+latency_prefile = end_time_prefile-start_time_prefile
+latency_decode = end_time_decode-start_time_decode-latency_prefile
+throughput_prefile = (args.batch_size*(args.max_input_length + 1))/latency_prefile
+throughput_decode = (args.batch_size*(args.max_new_tokens-1))/latency_decode
 
 
 file_path = "llama_bench_results.csv"
@@ -52,7 +60,7 @@ file_path = "llama_bench_results.csv"
 if pipe.is_rank_0:
     with open(file_path, 'a', newline='') as file:
         writer = csv.writer(file)
-        data = [["Nvidia A100 GPU",str(args.num_gpus),"Deepspeed-MII",args.model,str(args.max_input_length),str(args.batch_size),str(latency),str(throughput)]]
+        data = [["Nvidia A100 GPU",str(args.num_gpus),"Deepspeed-MII",args.model,str(args.max_input_length),str(args.batch_size),str(latency_prefile),str(throughput_prefile),str(latency_decode),str(throughput_decode)]]
         writer.writerows(data)
 
 
